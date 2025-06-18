@@ -1,8 +1,8 @@
 {
-  "name": "qx-cron-jobx",
+  "name": "Cron jobs",
   "task": [
     {
-      "config": "0 9 * * * https://raw.githubusercontent.com/yuyangwang-git/qx-cron-jobs/refs/heads/main/scripts/marginDataCrawler.js, icon=📈, tag=两融数据, enabled=true"
+      "config": "0 9 * * * https://raw.githubusercontent.com/yuyangwang-git/qx-cron-jobs/refs/heads/main/scripts/marginDataCrawler.js, tag=两融数据, enabled=true"
     }
   ],
   "description": "This is a sample."
