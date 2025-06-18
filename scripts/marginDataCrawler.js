@@ -1,81 +1,103 @@
 /**
- * 脚本：获取指定股票前五个交易日（不含今天）的融资余额
- * 环境：Quantumult X / Surge (支持 $task.fetch)
+ * 爬取指定股票前五个交易日融资余额数据
+ * 输出格式：按列对齐（考虑中英文字符宽度），融资余额用逗号分隔，且各日数据按列对齐
+ * 环境：Quantumult X 脚本
  */
 
-(async () => {
-  // —— 1. 配置区 ——
-  // 在这里填入你要查询的三只股票代码
-  const codes = ["002648", "600519", "000001"];
-  // API 模板
-  const apiBase =
-    "https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=1837_xxpl";
+// 需爬取的股票列表
+const stocks = ["000766", "002648", "002920"];
+const numDays = 5; // 前几交易日，不含今天
 
-  // —— 2. 辅助函数 ——
-  // 格式化日期为 yyyy-MM-dd
-  function formatDate(date) {
+; (async function () {
+  // 格式化日期为 YYYY-MM-DD
+  const formatDate = date => {
     const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
-  }
+  };
 
-  // 获取某只股票某一日期的融资余额及名称
-  async function fetchFinancing(dateStr, code) {
-    const url = `${apiBase}&txtDate=${dateStr}&txtZqdm=${code}`;
-    const resp = await $task.fetch({
-      url
-    }); // GET 请求
-    const json = JSON.parse(resp.body);
-    // 找到明细表（tab2）
-    const detail = json.find((item) => item.metadata.tabkey === "tab2");
-    if (detail && detail.data.length > 0) {
-      const row = detail.data[0];
-      return {
-        name: row.zqjc,
-        code: row.zqdm,
-        balance: row.jrrzye, // 单位：亿元
-      };
+  // 判断交易日：接口有数据为交易日
+  async function isTradingDay(txtDate) {
+    const url = `https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=1837_xxpl&txtDate=${txtDate}&txtZqdm=${stocks[0]}`;
+    try {
+      const resp = await $task.fetch({ url, method: 'GET' });
+      const body = JSON.parse(resp.body);
+      return !!(body && body[0] && body[0].data && body[0].data[0]);
+    } catch {
+      return false;
     }
-    return null;
   }
 
-  // 针对一只股票，获取前五个交易日的融资余额
-  async function getLast5(code) {
-    const results = [];
-    let cursor = new Date();
-    cursor.setDate(cursor.getDate() - 1); // 从昨天开始
-    while (results.length < 5) {
-      const wd = cursor.getDay();
-      // 跳过周末
-      if (wd !== 0 && wd !== 6) {
-        const ds = formatDate(cursor);
-        const info = await fetchFinancing(ds, code);
-        if (info) {
-          results.push(info);
-        }
-      }
-      cursor.setDate(cursor.getDate() - 1);
+  // 计算前 numDays 个交易日日期
+  const dates = [];
+  let d = new Date();
+  d.setDate(d.getDate() - 1);
+  while (dates.length < numDays) {
+    const txt = formatDate(d);
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6 && await isTradingDay(txt)) {
+      dates.push(txt);
     }
-    return results;
+    d.setDate(d.getDate() - 1);
   }
 
-  // —— 3. 主流程 ——
-  const lines = [];
-  for (const code of codes) {
-    const list = await getLast5(code);
-    // 前五个交易日的融资余额列表
-    const balances = list.map((x) => x.balance);
-    // 取第一个结果里的名称和代码
-    const {
-      name,
-      code: cd
-    } = list[0];
-    lines.push(`${name}（${cd}）：${balances.join(" ")}`);
-  }
+  // 并发请求数据
+  const reqs = [];
+  stocks.forEach(code => dates.forEach(date => {
+    reqs.push({
+      url: `https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=1837_xxpl&txtDate=${date}&txtZqdm=${code}`,
+      method: 'GET', code
+    });
+  }));
 
-  const output = lines.join("\n");
-  console.log(output);
-  $notify("前五日融资余额", "", output);
-  $done();
+  try {
+    const resps = await Promise.all(reqs.map(r => $task.fetch(r)));
+    const dataMap = {};
+    resps.forEach((resp, i) => {
+      const code = reqs[i].code;
+      let body;
+      try { body = JSON.parse(resp.body); } catch { body = null; }
+      // 修正：使用 body[1] 而非 body[0]
+      const row = body && body[1] && body[1].data && body[1].data[0];
+      const name = row ? row['zqjc'] : code;
+      const bal = row ? row['jrrzye'] : '';
+      if (!dataMap[code]) dataMap[code] = { name, balances: [] };
+      dataMap[code].balances.push(String(bal));
+    });
+
+    // 计算显示长度，中文算2，ASCII算1
+    function displayLen(str) {
+      return Array.from(str).reduce((l, ch) => /[\u4e00-\u9fa5]/.test(ch) ? l + 2 : l + 1, 0);
+    }
+
+    // 前缀对齐
+    const prefixes = stocks.map(c => `${dataMap[c].name}（${c}）`);
+    const prefixWidth = prefixes.reduce((m, p) => Math.max(m, displayLen(p)), 0);
+
+    // 各日数值列宽
+    const colWidths = Array(numDays).fill(0);
+    stocks.forEach(c => {
+      dataMap[c].balances.forEach((b, idx) => {
+        colWidths[idx] = Math.max(colWidths[idx], displayLen(b));
+      });
+    });
+
+    // 输出对齐行
+    prefixes.forEach((pre, idx) => {
+      const code = stocks[idx];
+      const padPre = ' '.repeat(prefixWidth - displayLen(pre));
+      const padded = dataMap[code].balances.map((b, j) => {
+        const pad = colWidths[j] - displayLen(b);
+        return ' '.repeat(pad) + b;
+      });
+      console.log(`${pre}${padPre}：${padded.join(', ')}`);
+      $notify(`${pre}${padPre}`, '近 5 个交易日融资余额', `${padded.join(', ')}`);
+    });
+    
+  } catch (e) {
+    $notify('融资余额爬取', '失败', e.error || e);
+  } finally {
+    $done();
+  }
 })();
