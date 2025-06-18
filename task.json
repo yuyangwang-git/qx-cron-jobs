@@ -1,0 +1,9 @@
+{
+  "name": "qx-cron-jobx",
+  "task": [
+    {
+      "config": "0 9 * * * https://raw.githubusercontent.com/yuyangwang-git/qx-cron-jobs/refs/heads/main/scripts/marginDataCrawler.js, icon=📈, tag=两融数据, enabled=true"
+    }
+  ],
+  "description": "This is a sample."
+}
