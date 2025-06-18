@@ -1,69 +1,81 @@
 /**
- * 脚本：获取指定股票近五日的融资买入额和融资余额
+ * 脚本：获取指定股票前五个交易日（不含今天）的融资余额
  * 环境：Quantumult X / Surge (支持 $task.fetch)
  */
 
-const codes = ['002648', '000001', '600000'];  // 在此填入你需要爬取的股票代码
-const results = [];
+(async () => {
+  // —— 1. 配置区 ——
+  // 在这里填入你要查询的三只股票代码
+  const codes = ["002648", "600519", "000001"];
+  // API 模板
+  const apiBase =
+    "https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=1837_xxpl";
 
-/**
- * 把 Date 对象格式化为 YYYY-MM-DD
- */
-function formatDate(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/**
- * 获取最近 n 个交易日（跳过周六、周日），返回 YYYY-MM-DD 数组，按日期升序
- */
-function getLastNDates(n) {
-  const dates = [];
-  const today = new Date();
-  let cursor = new Date(today);
-  while (dates.length < n) {
-    // 如果不是周末，就收集
-    if (cursor.getDay() !== 0 && cursor.getDay() !== 6) {
-      dates.push(formatDate(cursor));
-    }
-    cursor.setDate(cursor.getDate() - 1);
+  // —— 2. 辅助函数 ——
+  // 格式化日期为 yyyy-MM-dd
+  function formatDate(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
   }
-  return dates.reverse();
-}
 
-;(async () => {
-  const dates = getLastNDates(5);
+  // 获取某只股票某一日期的融资余额及名称
+  async function fetchFinancing(dateStr, code) {
+    const url = `${apiBase}&txtDate=${dateStr}&txtZqdm=${code}`;
+    const resp = await $task.fetch({
+      url
+    }); // GET 请求
+    const json = JSON.parse(resp.body);
+    // 找到明细表（tab2）
+    const detail = json.find((item) => item.metadata.tabkey === "tab2");
+    if (detail && detail.data.length > 0) {
+      const row = detail.data[0];
+      return {
+        name: row.zqjc,
+        code: row.zqdm,
+        balance: row.jrrzye, // 单位：亿元
+      };
+    }
+    return null;
+  }
 
-  for (const code of codes) {
-    for (const date of dates) {
-      const url = `https://www.szse.cn/api/report/ShowReport/data?SHOWTYPE=JSON&CATALOGID=1837_xxpl&txtDate=${date}&txtZqdm=${code}`;
-      try {
-        const response = await $task.fetch({ url, method: 'GET' });
-        const json = JSON.parse(response.body);
-
-        // 第一段数据就是总体汇总
-        const summary = json[0]?.data?.[0] || {};
-        results.push({
-          code,
-          date,
-          jrrzmr: summary.jrrzmr || 'N/A',
-          jrrzye: summary.jrrzye || 'N/A'
-        });
-      } catch (err) {
-        console.error(`❌ 获取 ${code} ${date} 时出错：`, err);
-        results.push({ code, date, jrrzmr: null, jrrzye: null, error: err.message });
+  // 针对一只股票，获取前五个交易日的融资余额
+  async function getLast5(code) {
+    const results = [];
+    let cursor = new Date();
+    cursor.setDate(cursor.getDate() - 1); // 从昨天开始
+    while (results.length < 5) {
+      const wd = cursor.getDay();
+      // 跳过周末
+      if (wd !== 0 && wd !== 6) {
+        const ds = formatDate(cursor);
+        const info = await fetchFinancing(ds, code);
+        if (info) {
+          results.push(info);
+        }
       }
+      cursor.setDate(cursor.getDate() - 1);
     }
+    return results;
   }
 
-  // 输出到控制台
-  console.log('—— 融资数据 ——');
-  console.log(JSON.stringify(results, null, 2));
+  // —— 3. 主流程 ——
+  const lines = [];
+  for (const code of codes) {
+    const list = await getLast5(code);
+    // 前五个交易日的融资余额列表
+    const balances = list.map((x) => x.balance);
+    // 取第一个结果里的名称和代码
+    const {
+      name,
+      code: cd
+    } = list[0];
+    lines.push(`${name}（${cd}）：${balances.join(" ")}`);
+  }
 
-  // 发送系统通知
-  $notify('融资数据抓取完成', '', JSON.stringify(results, null, 2));
-
+  const output = lines.join("\n");
+  console.log(output);
+  $notify("前五日融资余额", "", output);
   $done();
 })();
