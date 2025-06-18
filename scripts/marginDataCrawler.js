@@ -1,6 +1,5 @@
 /**
  * 爬取指定股票前五个交易日融资余额数据
- * 输出格式：按列对齐（考虑中英文字符宽度），融资余额用逗号分隔，且各日数据按列对齐
  * 环境：Quantumult X 脚本
  */
 
@@ -67,12 +66,14 @@ const numDays = 5; // 前几交易日，不含今天
       dataMap[code].balances.push(String(bal));
     });
 
-    // 按要求格式输出到控制台
+    // 按要求格式输出结果
     Object.keys(dataMap).forEach(code => {
       const { name, balances } = dataMap[code];
+      $notify(`${name}${code}`, '近 5 日融资余额（亿元）', `${balances.join(', ')}`);
+
+      // 调试用输出
       const line = `${name}（${code}）：${balances.join(' ')}`;
       console.log(line);
-      $notify(`${name}${code}`, '近 5 日融资余额（亿元）', `${balances.join(' ')}`);
     });
 
 
