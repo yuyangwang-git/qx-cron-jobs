@@ -69,10 +69,12 @@ const numDays = 5; // 前几交易日，不含今天
     // 按要求格式输出结果
     Object.keys(dataMap).forEach(code => {
       const { name, balances } = dataMap[code];
-      $notify(`${name}（${code}）`, '近 5 日融资余额（亿元）', `${balances.join(', ')}`);
+      const ordered = balances.slice().reverse();
+
+      $notify(`${name}（${code}）`, '近 5 日融资余额（亿元）', `${ordered.join(', ')}`);
 
       // 调试用输出
-      const line = `${name}（${code}）：${balances.join(', ')}`;
+      const line = `${name}（${code}）：${ordered.join(', ')}`;
       console.log(line);
     });
 
